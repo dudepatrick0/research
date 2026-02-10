@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PilotSense Research Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'pilot-dark': '#0a1628',
+                        'pilot-card': '#132039',
+                        'pilot-glow': '#38d9a9',
+                        'pilot-blue': '#4da6ff',
+                        'status-green': '#38d9a9',
+                        'status-amber': '#fbbf24',
+                        'status-red': '#f87171',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .glow { box-shadow: 0 0 20px rgba(56, 217, 169, 0.15); }
+        .table-container { max-height: 400px; overflow-y: auto; }
+        .table-container::-webkit-scrollbar { width: 8px; }
+        .table-container::-webkit-scrollbar-track { background: #132039; }
+        .table-container::-webkit-scrollbar-thumb { background: #38d9a9; border-radius: 4px; }
+        .loading { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body class="bg-pilot-dark min-h-screen text-white">
+    
+    <!-- Login Screen -->
+    <div id="loginScreen" class="min-h-screen flex items-center justify-center">
+        <div class="bg-pilot-card p-8 rounded-2xl glow max-w-md w-full mx-4">
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-pilot-glow/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8 text-pilot-glow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                    </svg>
+                </div>
+                <h1 class="text-2xl font-bold">PilotSense Research</h1>
+                <p class="text-gray-400 mt-2">Enter password to access dashboard</p>
+            </div>
+            <input 
+                type="password" 
+                id="passwordInput" 
+                placeholder="Password"
+                class="w-full bg-pilot-dark border border-gray-700 rounded-lg px-4 py-3 mb-4 focus:outline-none focus:border-pilot-glow"
+            >
+            <button 
+                id="loginBtn"
+                class="w-full bg-pilot-glow text-pilot-dark font-semibold py-3 rounded-lg hover:bg-pilot-glow/90 transition"
+            >
+                Access Dashboard
+            </button>
+            <p id="loginError" class="text-status-red text-center mt-4 hidden">Incorrect password</p>
+        </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard" class="hidden">
+        <header class="bg-pilot-card border-b border-gray-800 px-6 py-4 sticky top-0 z-10">
+            <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <h1 class="text-xl font-bold text-pilot-glow">📊 PilotSense Research Dashboard</h1>
+                    <p class="text-gray-400 text-sm">Live beta data • Updated: <span id="lastUpdated">--</span></p>
+                </div>
+                <div class="flex gap-3 flex-wrap">
+                    <button id="refreshBtn" class="bg-pilot-card border border-gray-700 px-4 py-2 rounded-lg hover:border-pilot-glow transition flex items-center gap-2 text-sm">
+                        🔄 Refresh
+                    </button>
+                    <button id="csvBtn" class="bg-pilot-card border border-gray-700 px-4 py-2 rounded-lg hover:border-pilot-glow transition flex items-center gap-2 text-sm">
+                        📥 CSV
+                    </button>
+                    <button id="pdfBtn" class="bg-pilot-glow text-pilot-dark px-4 py-2 rounded-lg hover:bg-pilot-glow/90 transition flex items-center gap-2 text-sm font-semibold">
+                        📄 PDF Report
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <main class="max-w-7xl mx-auto px-6 py-8">
+            <!-- Primary Stats -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div class="bg-pilot-card rounded-xl p-6 glow">
+                    <p class="text-gray-400 text-sm">Total Check-ins</p>
+                    <p id="statCheckIns" class="text-3xl font-bold text-pilot-glow mt-1">--</p>
+                </div>
+                <div class="bg-pilot-card rounded-xl p-6 glow">
+                    <p class="text-gray-400 text-sm">Prediction Accuracy</p>
+                    <p id="statAccuracy" class="text-3xl font-bold text-pilot-blue mt-1">--%</p>
+                </div>
+                <div class="bg-pilot-card rounded-xl p-6 glow">
+                    <p class="text-gray-400 text-sm">Avg Sleep (hrs)</p>
+                    <p id="statSleep" class="text-3xl font-bold text-white mt-1">--</p>
+                </div>
+                <div class="bg-pilot-card rounded-xl p-6 glow">
+                    <p class="text-gray-400 text-sm">RED Alerts</p>
+                    <p id="statRedAlerts" class="text-3xl font-bold text-status-red mt-1">--</p>
+                </div>
+            </div>
+
+            <!-- Secondary Stats -->
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+                <div class="bg-pilot-card rounded-xl p-5">
+                    <p class="text-gray-400 text-sm">Total Pilots</p>
+                    <p id="statPilots" class="text-2xl font-bold text-white mt-1">--</p>
+                </div>
+                <div class="bg-pilot-card rounded-xl p-5">
+                    <p class="text-gray-400 text-sm">Organizations</p>
+                    <p id="statOrgs" class="text-2xl font-bold text-white mt-1">--</p>
+                </div>
+                <div class="bg-pilot-card rounded-xl p-5">
+                    <p class="text-gray-400 text-sm">Flights Tracked</p>
+                    <p id="statFlights" class="text-2xl font-bold text-white mt-1">--</p>
+                </div>
+                <div class="bg-pilot-card rounded-xl p-5">
+                    <p class="text-gray-400 text-sm">Avg PVT (ms)</p>
+                    <p id="statPVT" class="text-2xl font-bold text-white mt-1">--</p>
+                </div>
+                <div class="bg-pilot-card rounded-xl p-5">
+                    <p class="text-gray-400 text-sm">Surveys</p>
+                    <p id="statSurveys" class="text-2xl font-bold text-white mt-1">--</p>
+                </div>
+            </div>
+
+            <!-- Status Distribution -->
+            <div class="bg-pilot-card rounded-xl p-6 mb-8 glow">
+                <h2 class="text-lg font-semibold mb-4">Readiness Status Distribution</h2>
+                <div class="flex gap-4">
+                    <div class="flex-1 bg-status-green/20 rounded-lg p-4 text-center">
+                        <p id="statGreen" class="text-2xl font-bold text-status-green">--</p>
+                        <p class="text-gray-400 text-sm">GREEN</p>
+                        <p id="statGreenPct" class="text-gray-500 text-xs">--%</p>
+                    </div>
+                    <div class="flex-1 bg-status-amber/20 rounded-lg p-4 text-center">
+                        <p id="statAmber" class="text-2xl font-bold text-status-amber">--</p>
+                        <p class="text-gray-400 text-sm">AMBER</p>
+                        <p id="statAmberPct" class="text-gray-500 text-xs">--%</p>
+                    </div>
+                    <div class="flex-1 bg-status-red/20 rounded-lg p-4 text-center">
+                        <p id="statRed" class="text-2xl font-bold text-status-red">--</p>
+                        <p class="text-gray-400 text-sm">RED</p>
+                        <p id="statRedPct" class="text-gray-500 text-xs">--%</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Correlations -->
+            <div class="bg-pilot-card rounded-xl p-6 mb-8">
+                <h2 class="text-lg font-semibold mb-4">Key Data Correlations</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-pilot-dark rounded-lg p-4">
+                        <p class="text-gray-400 text-sm mb-2">Sleep &lt;6hrs → Avg PVT</p>
+                        <p id="corrLowSleepPVT" class="text-xl font-bold text-status-amber">-- ms</p>
+                    </div>
+                    <div class="bg-pilot-dark rounded-lg p-4">
+                        <p class="text-gray-400 text-sm mb-2">Sleep ≥7hrs → Avg PVT</p>
+                        <p id="corrHighSleepPVT" class="text-xl font-bold text-status-green">-- ms</p>
+                    </div>
+                    <div class="bg-pilot-dark rounded-lg p-4">
+                        <p class="text-gray-400 text-sm mb-2">PVT Difference</p>
+                        <p id="corrPVTDiff" class="text-xl font-bold text-pilot-glow">--</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Case Study -->
+            <div class="bg-pilot-card rounded-xl p-6 mb-8 glow border border-pilot-glow/50">
+                <div class="flex justify-between items-center mb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-pilot-glow/20 rounded-full flex items-center justify-center">
+                            <span class="text-xl">🤖</span>
+                        </div>
+                        <div>
+                            <h2 class="text-lg font-semibold text-pilot-glow">AI-Generated Case Study</h2>
+                            <p class="text-gray-500 text-xs">Powered by Claude • Auto-cites your data</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="copyBtn" class="text-sm text-gray-400 hover:text-pilot-glow transition px-3 py-1 border border-gray-700 rounded-lg">Copy</button>
+                        <button id="regenerateBtn" class="text-sm bg-pilot-glow/20 text-pilot-glow hover:bg-pilot-glow/30 transition px-3 py-1 rounded-lg">🔄 Regenerate</button>
+                    </div>
+                </div>
+                <div id="aiAnalysis" class="text-gray-300 leading-relaxed whitespace-pre-line">
+                    <p class="text-gray-500 loading">Loading data and generating analysis...</p>
+                </div>
+            </div>
+
+            <!-- Data Tables -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <div class="bg-pilot-card rounded-xl p-6">
+                    <h2 class="text-lg font-semibold mb-4">Recent Check-ins (Anonymized)</h2>
+                    <div class="table-container">
+                        <table class="w-full text-sm">
+                            <thead class="text-gray-400 border-b border-gray-700 sticky top-0 bg-pilot-card">
+                                <tr>
+                                    <th class="text-left py-2 px-2">ID</th>
+                                    <th class="text-left py-2 px-2">Date</th>
+                                    <th class="text-left py-2 px-2">Sleep</th>
+                                    <th class="text-left py-2 px-2">PVT</th>
+                                    <th class="text-left py-2 px-2">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="checkInsTable">
+                                <tr><td colspan="5" class="py-4 text-center text-gray-500">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="bg-pilot-card rounded-xl p-6">
+                    <h2 class="text-lg font-semibold mb-4">Post-Flight Surveys</h2>
+                    <div class="table-container">
+                        <table class="w-full text-sm">
+                            <thead class="text-gray-400 border-b border-gray-700 sticky top-0 bg-pilot-card">
+                                <tr>
+                                    <th class="text-left py-2 px-2">ID</th>
+                                    <th class="text-left py-2 px-2">Date</th>
+                                    <th class="text-left py-2 px-2">Predicted</th>
+                                    <th class="text-left py-2 px-2">Actual</th>
+                                    <th class="text-left py-2 px-2">Match</th>
+                                </tr>
+                            </thead>
+                            <tbody id="surveysTable">
+                                <tr><td colspan="5" class="py-4 text-center text-gray-500">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <footer class="text-center text-gray-500 text-sm py-8">
+                <p>PilotSense Research Dashboard • Data anonymized • AI analysis by Claude</p>
+            </footer>
+        </main>
+    </div>
+
+    <script>
+        // ============ CONFIGURATION ============
+        var CORRECT_PASSWORD = "HighasfuckPlane32!";
+        var CLAUDE_API_KEY = "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";
+        
+        var firebaseConfig = {
+            apiKey: "AIzaSyAyfGTmaiu9Ps4c1YYGI6SM7wrIwcRO41A",
+            authDomain: "pilotfit-4d564.firebaseapp.com",
+            projectId: "pilotfit-4d564",
+            storageBucket: "pilotfit-4d564.firebasestorage.app",
+            messagingSenderId: "861806820372",
+            appId: "1:861806820372:ios:1fe52f197fdadc53e17b01"
+        };
+
+        // ============ GLOBAL STATE ============
+        var db;
+        var allCheckIns = [];
+        var allSurveys = [];
+        var allPilots = [];
+        var allFlights = [];
+        var allOrgs = [];
+        var stats = {};
+
+        // ============ INITIALIZE ============
+        document.addEventListener('DOMContentLoaded', function() {
+            // Init Firebase
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.firestore();
+
+            // Event listeners
+            document.getElementById('loginBtn').addEventListener('click', login);
+            document.getElementById('passwordInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') login();
+            });
+            document.getElementById('refreshBtn').addEventListener('click', loadAllData);
+            document.getElementById('csvBtn').addEventListener('click', exportCSV);
+            document.getElementById('pdfBtn').addEventListener('click', exportPDF);
+            document.getElementById('copyBtn').addEventListener('click', copyAnalysis);
+            document.getElementById('regenerateBtn').addEventListener('click', generateAIAnalysis);
+        });
+
+        // ============ LOGIN ============
+        function login() {
+            var input = document.getElementById('passwordInput').value;
+            if (input === CORRECT_PASSWORD) {
+                document.getElementById('loginScreen').classList.add('hidden');
+                document.getElementById('dashboard').classList.remove('hidden');
+                loadAllData();
+            } else {
+                document.getElementById('loginError').classList.remove('hidden');
+            }
+        }
+
+        // ============ LOAD DATA ============
+        async function loadAllData() {
+            try {
+                // Check-ins
+                var checkInsSnap = await db.collection('checkInRecords').orderBy('checkInDate', 'desc').limit(1000).get();
+                allCheckIns = checkInsSnap.docs.map(function(doc, index) {
+                    var data = doc.data();
+                    return {
+                        id: 'P' + String(index + 1).padStart(3, '0'),
+                        pilotId: data.pilotId,
+                        sleepHours: data.sleepHours,
+                        pvtScore: data.pvtScore,
+                        status: data.status,
+                        readinessScore: data.readinessScore,
+                        date: data.checkInDate && data.checkInDate.toDate ? data.checkInDate.toDate() : new Date()
+                    };
+                });
+
+                // Users
+                var usersSnap = await db.collection('users').get();
+                allPilots = usersSnap.docs.map(function(doc) { return { id: doc.id }; });
+
+                // Organizations
+                var orgsSnap = await db.collection('organizations').get();
+                allOrgs = orgsSnap.docs.map(function(doc) { return { id: doc.id }; });
+
+                // Flights
+                var flightsSnap = await db.collection('pilotFlights').get();
+                allFlights = flightsSnap.docs.map(function(doc) { return { id: doc.id }; });
+
+                // Surveys
+                var surveysSnap = await db.collection('completedFlights').get();
+                allSurveys = surveysSnap.docs.map(function(doc, index) {
+                    var data = doc.data();
+                    return {
+                        id: 'S' + String(index + 1).padStart(3, '0'),
+                        predictedRisk: data.predictedRisk,
+                        postFlightFatigue: data.postFlightFatigue,
+                        predictionAccuracy: data.predictionAccuracy,
+                        date: data.completedDate && data.completedDate.toDate ? data.completedDate.toDate() : new Date()
+                    };
+                });
+
+                calculateStats();
+                updateDashboard();
+                generateAIAnalysis();
+                
+                document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('aiAnalysis').innerHTML = '<p class="text-status-red">Error: ' + error.message + '</p>';
+            }
+        }
+
+        // ============ CALCULATE STATS ============
+        function calculateStats() {
+            var total = allCheckIns.length || 1;
+            
+            stats.totalCheckIns = allCheckIns.length;
+            stats.totalPilots = allPilots.length;
+            stats.totalOrgs = allOrgs.length;
+            stats.totalFlights = allFlights.length;
+            stats.totalSurveys = allSurveys.length;
+            
+            stats.greenCount = allCheckIns.filter(function(c) { return c.status === 'green'; }).length;
+            stats.amberCount = allCheckIns.filter(function(c) { return c.status && c.status.indexOf('amber') >= 0; }).length;
+            stats.redCount = allCheckIns.filter(function(c) { return c.status === 'red'; }).length;
+
+            // Averages
+            var sleepValues = allCheckIns.map(function(c) { return c.sleepHours; }).filter(function(s) { return s > 0; });
+            stats.avgSleep = sleepValues.length > 0 ? sleepValues.reduce(function(a,b) { return a+b; }, 0) / sleepValues.length : 0;
+
+            var pvtValues = allCheckIns.map(function(c) { return c.pvtScore; }).filter(function(p) { return p > 0; });
+            stats.avgPVT = pvtValues.length > 0 ? Math.round(pvtValues.reduce(function(a,b) { return a+b; }, 0) / pvtValues.length) : 0;
+
+            // Accuracy
+            var accurateSurveys = allSurveys.filter(function(s) { return s.predictionAccuracy === 'aboutRight'; }).length;
+            stats.accuracyPct = allSurveys.length > 0 ? Math.round(accurateSurveys / allSurveys.length * 100) : 0;
+
+            // Correlations
+            var lowSleepCheckIns = allCheckIns.filter(function(c) { return c.sleepHours > 0 && c.sleepHours < 6 && c.pvtScore > 0; });
+            var highSleepCheckIns = allCheckIns.filter(function(c) { return c.sleepHours >= 7 && c.pvtScore > 0; });
+
+            stats.lowSleepPVT = 0;
+            stats.highSleepPVT = 0;
+            stats.lowSleepRedRate = 0;
+
+            if (lowSleepCheckIns.length > 0) {
+                stats.lowSleepPVT = Math.round(lowSleepCheckIns.reduce(function(a,b) { return a + b.pvtScore; }, 0) / lowSleepCheckIns.length);
+                var lowSleepBad = lowSleepCheckIns.filter(function(c) { return c.status === 'red' || (c.status && c.status.indexOf('amber') >= 0); }).length;
+                stats.lowSleepRedRate = Math.round(lowSleepBad / lowSleepCheckIns.length * 100);
+            }
+            
+            if (highSleepCheckIns.length > 0) {
+                stats.highSleepPVT = Math.round(highSleepCheckIns.reduce(function(a,b) { return a + b.pvtScore; }, 0) / highSleepCheckIns.length);
+            }
+
+            stats.pvtDiff = stats.lowSleepPVT - stats.highSleepPVT;
+        }
+
+        // ============ UPDATE DASHBOARD ============
+        function updateDashboard() {
+            var total = allCheckIns.length || 1;
+
+            document.getElementById('statCheckIns').textContent = stats.totalCheckIns;
+            document.getElementById('statAccuracy').textContent = stats.totalSurveys > 0 ? stats.accuracyPct + '%' : 'N/A';
+            document.getElementById('statSleep').textContent = stats.avgSleep > 0 ? stats.avgSleep.toFixed(1) : '--';
+            document.getElementById('statRedAlerts').textContent = stats.redCount;
+
+            document.getElementById('statPilots').textContent = stats.totalPilots;
+            document.getElementById('statOrgs').textContent = stats.totalOrgs;
+            document.getElementById('statFlights').textContent = stats.totalFlights;
+            document.getElementById('statPVT').textContent = stats.avgPVT > 0 ? stats.avgPVT : '--';
+            document.getElementById('statSurveys').textContent = stats.totalSurveys;
+
+            document.getElementById('statGreen').textContent = stats.greenCount;
+            document.getElementById('statAmber').textContent = stats.amberCount;
+            document.getElementById('statRed').textContent = stats.redCount;
+            document.getElementById('statGreenPct').textContent = Math.round(stats.greenCount/total*100) + '%';
+            document.getElementById('statAmberPct').textContent = Math.round(stats.amberCount/total*100) + '%';
+            document.getElementById('statRedPct').textContent = Math.round(stats.redCount/total*100) + '%';
+
+            document.getElementById('corrLowSleepPVT').textContent = stats.lowSleepPVT > 0 ? stats.lowSleepPVT + ' ms' : 'N/A';
+            document.getElementById('corrHighSleepPVT').textContent = stats.highSleepPVT > 0 ? stats.highSleepPVT + ' ms' : 'N/A';
+            document.getElementById('corrPVTDiff').textContent = stats.pvtDiff !== 0 ? (stats.pvtDiff > 0 ? '+' : '') + stats.pvtDiff + ' ms' : 'N/A';
+
+            populateCheckInsTable();
+            populateSurveysTable();
+        }
+
+        function populateCheckInsTable() {
+            var tbody = document.getElementById('checkInsTable');
+            if (allCheckIns.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-500">No check-ins yet</td></tr>';
+                return;
+            }
+
+            var html = '';
+            allCheckIns.slice(0, 50).forEach(function(c) {
+                var statusColor = c.status === 'green' ? 'text-status-green' : (c.status === 'red' ? 'text-status-red' : 'text-status-amber');
+                var statusText = c.status === 'green' ? 'GREEN' : (c.status === 'red' ? 'RED' : 'AMBER');
+                var dateStr = c.date ? c.date.toLocaleDateString() : '--';
+                var sleepStr = c.sleepHours ? c.sleepHours.toFixed(1) + 'h' : '--';
+                var pvtStr = c.pvtScore ? c.pvtScore + ' ms' : '--';
+                
+                html += '<tr class="border-b border-gray-800">';
+                html += '<td class="py-2 px-2 text-gray-400">' + c.id + '</td>';
+                html += '<td class="py-2 px-2">' + dateStr + '</td>';
+                html += '<td class="py-2 px-2">' + sleepStr + '</td>';
+                html += '<td class="py-2 px-2">' + pvtStr + '</td>';
+                html += '<td class="py-2 px-2 ' + statusColor + ' font-semibold">' + statusText + '</td>';
+                html += '</tr>';
+            });
+            tbody.innerHTML = html;
+        }
+
+        function populateSurveysTable() {
+            var tbody = document.getElementById('surveysTable');
+            if (allSurveys.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="py-4 text-center text-gray-500">No surveys yet</td></tr>';
+                return;
+            }
+
+            var html = '';
+            allSurveys.slice(0, 50).forEach(function(s) {
+                var match = s.predictionAccuracy === 'aboutRight';
+                var dateStr = s.date ? s.date.toLocaleDateString() : '--';
+                
+                html += '<tr class="border-b border-gray-800">';
+                html += '<td class="py-2 px-2 text-gray-400">' + s.id + '</td>';
+                html += '<td class="py-2 px-2">' + dateStr + '</td>';
+                html += '<td class="py-2 px-2">' + (s.predictedRisk || '--') + '</td>';
+                html += '<td class="py-2 px-2">' + (s.postFlightFatigue || '--') + '/5</td>';
+                html += '<td class="py-2 px-2 ' + (match ? 'text-status-green' : 'text-status-amber') + '">' + (match ? '✓ Yes' : '✗ No') + '</td>';
+                html += '</tr>';
+            });
+            tbody.innerHTML = html;
+        }
+
+        // ============ AI ANALYSIS ============
+        async function generateAIAnalysis() {
+            var analysisDiv = document.getElementById('aiAnalysis');
+            var btn = document.getElementById('regenerateBtn');
+            
+            btn.disabled = true;
+            btn.textContent = '⏳ Analyzing...';
+            analysisDiv.innerHTML = '<p class="text-gray-500 loading">Claude is analyzing your data...</p>';
+
+            if (allCheckIns.length === 0) {
+                analysisDiv.innerHTML = '<p class="text-gray-400">No data available yet. As pilots use the app, Claude will generate insights.</p>';
+                btn.disabled = false;
+                btn.textContent = '🔄 Regenerate';
+                return;
+            }
+
+            var prompt = 'You are a research analyst for PilotSense, a pilot fatigue management app seeking AME certification.\n\n';
+            prompt += 'Analyze this REAL data and write a compelling case study. Be specific, cite exact numbers.\n\n';
+            prompt += 'DATA:\n';
+            prompt += '- Total check-ins: ' + stats.totalCheckIns + '\n';
+            prompt += '- Total pilots: ' + stats.totalPilots + '\n';
+            prompt += '- Organizations: ' + stats.totalOrgs + '\n';
+            prompt += '- Flights tracked: ' + stats.totalFlights + '\n';
+            prompt += '- Surveys: ' + stats.totalSurveys + '\n\n';
+            prompt += 'STATUS: GREEN=' + stats.greenCount + ', AMBER=' + stats.amberCount + ', RED=' + stats.redCount + '\n';
+            prompt += 'Avg Sleep: ' + stats.avgSleep.toFixed(1) + 'h, Avg PVT: ' + stats.avgPVT + 'ms\n';
+            prompt += 'Accuracy: ' + stats.accuracyPct + '%\n';
+            prompt += 'Low sleep (<6h) PVT: ' + stats.lowSleepPVT + 'ms, High sleep (7h+) PVT: ' + stats.highSleepPVT + 'ms\n\n';
+            prompt += 'Write 3-4 paragraphs for AME review. No markdown, just plain text.';
+
+            try {
+                var response = await fetch('https://api.anthropic.com/v1/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': CLAUDE_API_KEY,
+                        'anthropic-version': '2023-06-01',
+                        'anthropic-dangerous-direct-browser-access': 'true'
+                    },
+                    body: JSON.stringify({
+                        model: 'claude-3-5-sonnet-20241022',
+                        max_tokens: 1024,
+                        messages: [{ role: 'user', content: prompt }]
+                    })
+                });
+
+                if (!response.ok) throw new Error('API error: ' + response.status);
+
+                var data = await response.json();
+                analysisDiv.innerHTML = data.content[0].text;
+            } catch (error) {
+                console.error('Claude error:', error);
+                analysisDiv.innerHTML = '<p class="text-status-amber">API Error: ' + error.message + '</p>';
+                analysisDiv.innerHTML += '<p class="text-gray-400 mt-4">Summary: ' + stats.totalCheckIns + ' check-ins, ' + stats.totalPilots + ' pilots. ' + stats.accuracyPct + '% accuracy.</p>';
+            }
+
+            btn.disabled = false;
+            btn.textContent = '🔄 Regenerate';
+        }
+
+        function copyAnalysis() {
+            var text = document.getElementById('aiAnalysis').innerText;
+            navigator.clipboard.writeText(text).then(function() { alert('Copied!'); });
+        }
+
+        // ============ EXPORTS ============
+        function exportCSV() {
+            if (allCheckIns.length === 0) { alert('No data'); return; }
+
+            var csv = 'Pilot_ID,Date,Sleep_Hours,PVT_ms,Status\n';
+            allCheckIns.forEach(function(c) {
+                csv += c.id + ',' + (c.date ? c.date.toISOString().split('T')[0] : '') + ',' + (c.sleepHours || '') + ',' + (c.pvtScore || '') + ',' + (c.status || '') + '\n';
+            });
+
+            var blob = new Blob([csv], { type: 'text/csv' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'pilotsense_data.csv';
+            a.click();
+        }
+
+        function exportPDF() {
+            var jsPDF = window.jspdf.jsPDF;
+            var doc = new jsPDF();
+            
+            doc.setFontSize(20);
+            doc.text('PilotSense Research Report', 20, 20);
+            
+            doc.setFontSize(10);
+            doc.text('Generated: ' + new Date().toLocaleDateString(), 20, 30);
+            
+            doc.setFontSize(12);
+            var y = 45;
+            doc.text('Check-ins: ' + stats.totalCheckIns, 20, y);
+            doc.text('Pilots: ' + stats.totalPilots, 20, y + 8);
+            doc.text('Accuracy: ' + stats.accuracyPct + '%', 20, y + 16);
+            doc.text('GREEN: ' + stats.greenCount + ' | AMBER: ' + stats.amberCount + ' | RED: ' + stats.redCount, 20, y + 24);
+            
+            doc.setFontSize(14);
+            doc.text('Analysis', 20, y + 40);
+            
+            doc.setFontSize(10);
+            var analysis = document.getElementById('aiAnalysis').innerText;
+            var lines = doc.splitTextToSize(analysis, 170);
+            doc.text(lines, 20, y + 50);
+            
+            doc.save('pilotsense_report.pdf');
+        }
+    </script>
+</body>
+</html>
